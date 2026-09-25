@@ -1,0 +1,17 @@
+# Build artifacts
+*.exe
+*.obj
+*.o
+*.out
+lab
+lab.exe
+
+# IDE
+.vs/
+.vscode/
+*.suo
+*.user
+
+# Local benchmark logs
+run_log.txt
+run_*.txt
