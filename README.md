@@ -2,8 +2,6 @@
 
 在 RTX 5060 Laptop（sm_120）上，用 `nvcuda::wmma` 把 1024×1024×1024 的 FP16 GEMM 从 naive 做到沿 N 的 register blocking，并和同精度 cuBLAS 对比。
 
-这是学习记录，不是高性能 GEMM 库。WMMA 16×16×16 只是教学接口。
-
 ## 环境
 
 - GPU: NVIDIA GeForce RTX 5060 Laptop GPU，sm_120，26 SMs，L2 32 MB
