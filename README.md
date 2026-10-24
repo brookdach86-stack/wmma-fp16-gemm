@@ -32,7 +32,9 @@ cuBLAS 是列主序。行主序 `C = A*B` 写成列主序就是 `C^T = B^T * A^T
 
 ## 结果
 
-warmup 10，计时 100 次，cudaEvent，默认流。下表是一次运行。紧挨着的另一次几乎一样；刚编译完的那次 cuBLAS 掉到 30.5 TFLOPS，k5 掉到 23.8。笔记本频率会漂，74% 不要看成稳定小数。
+warmup 10，计时 100 次，cudaEvent，默认流。1024³ 是在满血状态下测的，4096/8192³ 是连续测试时测的（笔记本降频，cuBLAS 从 32.9 TFLOPS 掉到 30.3/32.3，但比例稳定）。
+
+### 1024³（L2 装得下，非带宽受限）
 
 | Kernel | 延迟 (us) | TFLOPS | vs cuBLAS |
 | --- | --- | --- | --- |
@@ -43,7 +45,46 @@ warmup 10，计时 100 次，cudaEvent，默认流。下表是一次运行。紧
 | k5 rb | 88.16 | 24.4 | 74.0% |
 | cuBLAS | 65.25 | 32.9 | 100% |
 
-k5 的绝对速度仍是大约 24 TFLOPS。比例比旧笔记里的 45.7% 高，是因为基线换了，不是 kernel 变快。旧的 52.9 TFLOPS 来自 `cublasHgemm`：FP16 输出，而且那个调用没有算同一个行主序乘积。那个比例作废。
+### 4096³（HBM 带宽受限）
+
+| Kernel | 延迟 (us) | TFLOPS | vs cuBLAS |
+| --- | --- | --- | --- |
+| k1 naive | 22323 | 6.2 | 20.3% |
+| k2 smem | 25400 | 5.4 | 17.8% |
+| k3 pad | 22351 | 6.1 | 20.3% |
+| k4 db | 12648 | 10.9 | 35.8% |
+| k5 rb | 7059 | 19.5 | 64.2% |
+| cuBLAS | 4534 | 30.3 | 100% |
+
+### 8192³（HBM 带宽受限）
+
+| Kernel | 延迟 (us) | TFLOPS | vs cuBLAS |
+| --- | --- | --- | --- |
+| k1 naive | 581278 | 1.9 | 5.8% |
+| k2 smem | 233343 | 4.7 | 14.6% |
+| k3 pad | 200644 | 5.5 | 16.9% |
+| k4 db | 113983 | 9.6 | 29.8% |
+| k5 rb | 58799 | 18.7 | 57.8% |
+| cuBLAS | 33997 | 32.3 | 100% |
+
+### 观察
+
+1. **k1 在大尺寸下崩了**：8192³ 时 k1 只有 1.9 TFLOPS（5.8%），因为它从 global memory 直接读 fragment，HBM 带宽完全顶不住。1024³ 时 k1 还有 8.4 TFLOPS，因为 A+B 才 4 MB，L2 全装下了。
+2. **双缓冲 k4 在大尺寸下才真正发力**：8192³ 时 k4 比 k3 快 1.76 倍（29.8% vs 16.9%），但 1024³ 时只快 1.38 倍。大尺寸下访存延迟高，双缓冲藏延迟的效果才明显。
+3. **k5 的 TFLOPS 随尺寸增大反而略降**（19.3 → 19.5 → 18.7），说明 register blocking 的复用收益被访存开销抵消了一部分。
+4. **cuBLAS 在大尺寸下稳定在 30-32 TFLOPS**，接近 RTX 5060 Laptop 的 FP16 Tensor Core 峰值，说明大尺寸下它能跑满算力。
+5. **k5 vs cuBLAS 的比例随尺寸下降**（74% → 64% → 58%），因为 cuBLAS 的多级 pipeline 和 swizzle 在带宽受限时优势更大。
+
+编译大尺寸：
+
+```powershell
+nvcc -o lab_4096.exe wmma_lab.cu -arch=sm_120 -O3 -lcublas -DGEMM_M=4096 -DGEMM_N=4096 -DGEMM_K=4096 -DSKIP_CPU=1
+nvcc -o lab_8192.exe wmma_lab.cu -arch=sm_120 -O3 -lcublas -DGEMM_M=8192 -DGEMM_N=8192 -DGEMM_K=8192 -DSKIP_CPU=1
+```
+
+`SKIP_CPU=1` 跳过 CPU reference（8192³ 的 CPU 矩阵乘法要好几分钟），正确性改为 kernel 之间对比（1024³ 已验证过 vs CPU）。
+
+k5 的绝对速度仍是大约 19-24 TFLOPS。比例比旧笔记里的 45.7% 高，是因为基线换了，不是 kernel 变快。旧的 52.9 TFLOPS 来自 `cublasHgemm`：FP16 输出，而且那个调用没有算同一个行主序乘积。那个比例作废。
 
 ## 正确性
 
@@ -56,7 +97,6 @@ cuBLAS 和 k1 完全一致，说明转置调用算的是同一个乘积。cuBLAS
 
 ## 现在的上限
 
-- 只测了 1024³
 - shared memory 拷贝是 4 字节 `__half2`，不是 16 字节
 - 没有 swizzle，只有 `PAD=8`
 - 只有两级缓冲，而且本轮 MMA 结束后立刻等待

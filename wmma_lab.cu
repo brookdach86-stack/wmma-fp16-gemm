@@ -8,15 +8,15 @@
 #include <cuda_pipeline.h>
 using namespace nvcuda;
 
-#define CHECK_CUDA(expr)                                                                 \
-    do                                                                                   \
-    {                                                                                    \
-        cudaError_t _st = (expr);                                                        \
-        if (_st != cudaSuccess)                                                          \
-        {                                                                                \
+#define CHECK_CUDA(expr)                                                                     \
+    do                                                                                       \
+    {                                                                                        \
+        cudaError_t _st = (expr);                                                            \
+        if (_st != cudaSuccess)                                                              \
+        {                                                                                    \
             fprintf(stderr, "%s:%d CUDA %s\n", __FILE__, __LINE__, cudaGetErrorString(_st)); \
-            exit(1);                                                                     \
-        }                                                                                \
+            exit(1);                                                                         \
+        }                                                                                    \
     } while (0)
 
 constexpr int WARMUP = 10;
@@ -25,9 +25,23 @@ constexpr int REPS = 100;
 constexpr float CPU_MAX_ABS_LIMIT = 0.05f;
 constexpr float VS_K1_MAX_ABS_LIMIT = 1.0e-3f;
 
-constexpr int M = 1024;
-constexpr int N = 1024;
-constexpr int K = 1024;
+#ifndef GEMM_M
+#define GEMM_M 1024
+#endif
+#ifndef GEMM_N
+#define GEMM_N 1024
+#endif
+#ifndef GEMM_K
+#define GEMM_K 1024
+#endif
+constexpr int M = GEMM_M;
+constexpr int N = GEMM_N;
+constexpr int K = GEMM_K;
+// 大尺寸（4096/8192）下 CPU reference 太慢，跳过 CPU 校验，
+// 只对比 kernel 之间一致性（1024^3 已验证过正确性）
+#ifndef SKIP_CPU
+#define SKIP_CPU 0
+#endif
 constexpr int PAD = 8;
 constexpr int BM = 64;
 constexpr int BN = 64;
@@ -495,9 +509,18 @@ bool check_kernel(const char *name,
     CHECK_CUDA(cudaGetLastError());
     CHECK_CUDA(cudaMemcpy(hC, dC, M * N * sizeof(float), cudaMemcpyDeviceToHost));
 
+#if SKIP_CPU
+    ErrStats vs_cpu = {0.0f, 0.0f};
+#else
     ErrStats vs_cpu = err_stats(hC, hCpu, M * N);
+#endif
     float vs_k1 = is_k1 ? 0.0f : err_stats(hC, hK1, M * N).max_abs;
-    bool pass = vs_cpu.max_abs <= CPU_MAX_ABS_LIMIT && vs_k1 <= VS_K1_MAX_ABS_LIMIT;
+    bool pass =
+#if SKIP_CPU
+        vs_k1 <= VS_K1_MAX_ABS_LIMIT;
+#else
+        vs_cpu.max_abs <= CPU_MAX_ABS_LIMIT && vs_k1 <= VS_K1_MAX_ABS_LIMIT;
+#endif
     printf("%-8s %12.6f %12.6f %12.6f   %s\n",
            name, vs_cpu.avg, vs_cpu.max_abs, vs_k1, pass ? "PASS" : "FAIL");
     return pass;
@@ -517,7 +540,12 @@ int main()
     printf("Footprint: A+B %.2f MB, C %.2f MB\n", bytes_ab / mib, bytes_c / mib);
     if (bytes_ab + bytes_c < (double)prop.l2CacheSize)
         printf("A+B+C fits in L2. 1024^3 is not an HBM-bound large-GEMM result.\n");
+    else
+        printf("A+B+C exceeds L2. This is an HBM-bound large-GEMM result.\n");
     printf("Timing: warmup %d + reps %d, cudaEvent, default stream\n", WARMUP, REPS);
+#if SKIP_CPU
+    printf("SKIP_CPU=1: skipping CPU reference, correctness checked kernel-vs-k1 only\n");
+#endif
 
     srand(1);
     half *hA = new half[M * K];
@@ -537,6 +565,7 @@ int main()
     CHECK_CUDA(cudaMemcpy(dA, hA, M * K * sizeof(half), cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(dB, hB, K * N * sizeof(half), cudaMemcpyHostToDevice));
 
+#if !SKIP_CPU
     half *hA_test = new half[256];
     for (int i = 0; i < 16; i++)
         for (int j = 0; j < 16; j++)
@@ -559,6 +588,7 @@ int main()
 
     printf("CPU reference...\n");
     cpu_ref(hA, hB, hCpu);
+#endif
 
     cublasHandle_t handle;
     cublasStatus_t cst = cublasCreate(&handle);
@@ -569,9 +599,13 @@ int main()
     }
 
     printf("\n==== Correctness ====\n");
+#if SKIP_CPU
+    printf("SKIP_CPU: only checking max|kernel-k1| <= %.1e (CPU ref skipped)\n", VS_K1_MAX_ABS_LIMIT);
+#else
     printf("limits: max|gpu-cpu| <= %.2f,  max|kernel-k1| <= %.1e\n",
            CPU_MAX_ABS_LIMIT, VS_K1_MAX_ABS_LIMIT);
     printf("cuBLAS is gated on max_vs_cpu only; its max_vs_k1 column is informational\n");
+#endif
     printf("%-8s %12s %12s %12s   %s\n", "kernel", "avg_vs_cpu", "max_vs_cpu", "max_vs_k1", "status");
 
     bool ok = true;
@@ -585,9 +619,14 @@ int main()
     CHECK_CUDA(cudaMemset(dC, 0, M * N * sizeof(float)));
     gemm_cublas(handle, dA, dB, dC);
     CHECK_CUDA(cudaMemcpy(hC, dC, M * N * sizeof(float), cudaMemcpyDeviceToHost));
+#if SKIP_CPU
+    ErrStats cublas_cpu = {0.0f, 0.0f};
+    bool cublas_pass = true;
+#else
     ErrStats cublas_cpu = err_stats(hC, hCpu, M * N);
-    float cublas_k1 = err_stats(hC, hK1, M * N).max_abs;
     bool cublas_pass = cublas_cpu.max_abs <= CPU_MAX_ABS_LIMIT;
+#endif
+    float cublas_k1 = err_stats(hC, hK1, M * N).max_abs;
     printf("%-8s %12.6f %12.6f %12.6f   %s\n",
            "cuBLAS", cublas_cpu.avg, cublas_cpu.max_abs, cublas_k1, cublas_pass ? "PASS" : "FAIL");
     ok = cublas_pass && ok;
