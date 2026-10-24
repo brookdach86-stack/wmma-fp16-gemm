@@ -1,5 +1,7 @@
 # WMMA FP16 GEMM 笔记
 
+> ⚠️ **已归档**：本仓库的 k1–k5 源码已合并到 [cuda-learning](https://github.com/brookdach86-stack/cuda-learning) 的 `矩阵乘法/wmma_gemm.cu`。以下内容保留作为独立参考。
+
 在 RTX 5060 Laptop（sm_120）上，用 `nvcuda::wmma` 把 1024×1024×1024 的 FP16 GEMM 从 naive 做到沿 N 的 register blocking，并和同精度 cuBLAS 对比。
 
 ## 环境
