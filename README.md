@@ -1,6 +1,6 @@
-# WMMA FP16 GEMM 笔记
+# WMMA FP16 GEMM
 
-> ⚠️ **已归档**：本仓库的 k1–k5 源码已合并到 [cuda-learning](https://github.com/brookdach86-stack/cuda-learning) 的 `矩阵乘法/wmma_gemm.cu`。以下内容保留作为独立参考。
+> k1–k5 源码已合并到 [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) 的 `矩阵乘法/wmma_gemm.cu`。本仓库保留独立 benchmark 数据。
 
 在 RTX 5060 Laptop（sm_120）上，用 `nvcuda::wmma` 把 1024×1024×1024 的 FP16 GEMM 从 naive 做到沿 N 的 register blocking，并和同精度 cuBLAS 对比。
 
@@ -83,8 +83,6 @@ nvcc -o lab_8192.exe wmma_lab.cu -arch=sm_120 -O3 -lcublas -DGEMM_M=8192 -DGEMM_
 ```
 
 `SKIP_CPU=1` 跳过 CPU reference（8192³ 的 CPU 矩阵乘法要好几分钟），正确性改为 kernel 之间对比（1024³ 已验证过 vs CPU）。
-
-k5 的绝对速度仍是大约 19-24 TFLOPS。比例比旧笔记里的 45.7% 高，是因为基线换了，不是 kernel 变快。旧的 52.9 TFLOPS 来自 `cublasHgemm`：FP16 输出，而且那个调用没有算同一个行主序乘积。那个比例作废。
 
 ## 正确性
 
