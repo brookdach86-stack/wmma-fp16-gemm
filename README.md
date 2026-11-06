@@ -1,42 +1,42 @@
 # WMMA FP16 GEMM
 
-> k1–k5 源码已合并到 [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) 的 `矩阵乘法/wmma_gemm.cu`。本仓库保留独立 benchmark 数据。
+> k1–k5 source has been merged into [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) at `矩阵乘法/wmma_gemm.cu`. This repo retains standalone benchmark data.
 
-在 RTX 5060 Laptop（sm_120）上，用 `nvcuda::wmma` 把 1024×1024×1024 的 FP16 GEMM 从 naive 做到沿 N 的 register blocking，并和同精度 cuBLAS 对比。
+Implementing 1024×1024×1024 FP16 GEMM from naive to register-blocked-along-N using `nvcuda::wmma` on RTX 5060 Laptop (sm_120), compared against same-precision cuBLAS.
 
-## 环境
+## Environment
 
-- GPU: NVIDIA GeForce RTX 5060 Laptop GPU，sm_120，26 SMs，L2 32 MB
+- GPU: NVIDIA GeForce RTX 5060 Laptop GPU, sm_120, 26 SMs, 32 MB L2
 - CUDA 13.3
-- 编译运行: `build.bat`（`nvcc -arch=sm_120 -O3 -lcublas`）
-- 校验失败时 `lab.exe` 返回非 0
+- Build: `build.bat` (`nvcc -arch=sm_120 -O3 -lcublas`)
+- `lab.exe` returns non-zero on validation failure
 
-## 算什么
+## What It Computes
 
-行主序 `C = A * B`。FP16 输入，FP32 累加，FP32 写回。`srand(1)`，元素是 `(rand() % 200) / 100`，范围 [0, 1.99]。
+Row-major `C = A * B`. FP16 inputs, FP32 accumulation, FP32 writeback. `srand(1)`, elements are `(rand() % 200) / 100`, range [0, 1.99].
 
-A+B 4 MB，C 4 MB，小于 32 MB 的 L2。1024³ 不能代表大矩阵、受显存带宽限制时的性能。
+A+B total 4 MB, C 4 MB — fits in L2's 32 MB. 1024³ does not represent large-matrix, bandwidth-limited performance.
 
-## 版本
+## Versions
 
-| Kernel | 做了什么 |
+| Kernel | What It Does |
 | --- | --- |
-| k1 naive | 直接从 global memory 取 fragment |
-| k2 smem | shared memory tile，没有 padding，有 bank conflict |
-| k3 pad | `PAD=8`，只把行拉开，不是 swizzle |
-| k4 db | 双缓冲。本轮 MMA 和下一 tile 的 4 字节异步拷贝重叠，MMA 之后就 `wait_prior(0)` |
-| k5 rb | 每个 warp 算 16×64，复用 `fa`，`fc` 有 4 个。不是 128×128 的完整 register tile |
-| cuBLAS | `cublasGemmEx`，`CUBLAS_COMPUTE_32F`，FP16 进 / FP32 出 |
+| k1 naive | Direct fragment from global memory |
+| k2 smem | Shared memory tile, no padding, has bank conflict |
+| k3 pad | `PAD=8`, only row spacing, not swizzle |
+| k4 db | Double buffering. Current tile MMA overlaps with next tile's 4-byte async copy; `wait_prior(0)` after MMA |
+| k5 rb | Each warp computes 16×64, reuses `fa`, `fc` has 4 copies. Not a complete 128×128 register tile |
+| cuBLAS | `cublasGemmEx`, `CUBLAS_COMPUTE_32F`, FP16 in / FP32 out |
 
-cuBLAS 是列主序。行主序 `C = A*B` 写成列主序就是 `C^T = B^T * A^T`，所以调用维度是 `(N, M, K)`，矩阵顺序是 B、A。
+cuBLAS is column-major. Row-major `C = A*B` in column-major becomes `C^T = B^T * A^T`, so call dimensions are `(N, M, K)` with matrix order B, A.
 
-## 结果
+## Results
 
-warmup 10，计时 100 次，cudaEvent，默认流。1024³ 是在满血状态下测的，4096/8192³ 是连续测试时测的（笔记本降频，cuBLAS 从 32.9 TFLOPS 掉到 30.3/32.3，但比例稳定）。
+Warmup 10, timed 100 iterations, cudaEvent, default stream. 1024³ measured at full boost; 4096/8192³ measured back-to-back (laptop power-limits, cuBLAS drops from 32.9 TFLOPS to 30.3/32.3 but ratio stays stable).
 
-### 1024³（L2 装得下，非带宽受限）
+### 1024³ (fits in L2, not bandwidth-limited)
 
-| Kernel | 延迟 (us) | TFLOPS | vs cuBLAS |
+| Kernel | Latency (us) | TFLOPS | vs cuBLAS |
 | --- | --- | --- | --- |
 | k1 naive | 254.24 | 8.4 | 25.7% |
 | k2 smem | 310.95 | 6.9 | 21.0% |
@@ -45,9 +45,9 @@ warmup 10，计时 100 次，cudaEvent，默认流。1024³ 是在满血状态�
 | k5 rb | 88.16 | 24.4 | 74.0% |
 | cuBLAS | 65.25 | 32.9 | 100% |
 
-### 4096³（HBM 带宽受限）
+### 4096³ (HBM bandwidth-limited)
 
-| Kernel | 延迟 (us) | TFLOPS | vs cuBLAS |
+| Kernel | Latency (us) | TFLOPS | vs cuBLAS |
 | --- | --- | --- | --- |
 | k1 naive | 22323 | 6.2 | 20.3% |
 | k2 smem | 25400 | 5.4 | 17.8% |
@@ -56,9 +56,9 @@ warmup 10，计时 100 次，cudaEvent，默认流。1024³ 是在满血状态�
 | k5 rb | 7059 | 19.5 | 64.2% |
 | cuBLAS | 4534 | 30.3 | 100% |
 
-### 8192³（HBM 带宽受限）
+### 8192³ (HBM bandwidth-limited)
 
-| Kernel | 延迟 (us) | TFLOPS | vs cuBLAS |
+| Kernel | Latency (us) | TFLOPS | vs cuBLAS |
 | --- | --- | --- | --- |
 | k1 naive | 581278 | 1.9 | 5.8% |
 | k2 smem | 233343 | 4.7 | 14.6% |
@@ -67,50 +67,50 @@ warmup 10，计时 100 次，cudaEvent，默认流。1024³ 是在满血状态�
 | k5 rb | 58799 | 18.7 | 57.8% |
 | cuBLAS | 33997 | 32.3 | 100% |
 
-### 观察
+### Observations
 
-1. **k1 在大尺寸下崩了**：8192³ 时 k1 只有 1.9 TFLOPS（5.8%），因为它从 global memory 直接读 fragment，HBM 带宽完全顶不住。1024³ 时 k1 还有 8.4 TFLOPS，因为 A+B 才 4 MB，L2 全装下了。
-2. **双缓冲 k4 在大尺寸下才真正发力**：8192³ 时 k4 比 k3 快 1.76 倍（29.8% vs 16.9%），但 1024³ 时只快 1.38 倍。大尺寸下访存延迟高，双缓冲藏延迟的效果才明显。
-3. **k5 的 TFLOPS 随尺寸增大反而略降**（19.3 → 19.5 → 18.7），说明 register blocking 的复用收益被访存开销抵消了一部分。
-4. **cuBLAS 在大尺寸下稳定在 30-32 TFLOPS**，接近 RTX 5060 Laptop 的 FP16 Tensor Core 峰值，说明大尺寸下它能跑满算力。
-5. **k5 vs cuBLAS 的比例随尺寸下降**（74% → 64% → 58%），因为 cuBLAS 的多级 pipeline 和 swizzle 在带宽受限时优势更大。
+1. **k1 collapses at large sizes**: at 8192³ k1 only gets 1.9 TFLOPS (5.8%) — reading fragments directly from global memory, HBM bandwidth can't keep up. At 1024³ k1 still has 8.4 TFLOPS because A+B is only 4 MB, fits in L2.
+2. **Double buffering k4 only shows real gains at large sizes**: at 8192³ k4 is 1.76× faster than k3 (29.8% vs 16.9%), but at 1024³ only 1.38×. At large sizes memory latency is high, hiding it matters.
+3. **k5 TFLOPS slightly decreases with size** (19.3 → 19.5 → 18.7) — register blocking reuse gains are partially offset by memory overhead.
+4. **cuBLAS stabilizes at 30-32 TFLOPS at large sizes**, near the RTX 5060 Laptop FP16 Tensor Core peak — showing it saturates compute at large sizes.
+5. **k5 vs cuBLAS ratio drops with size** (74% → 64% → 58%) because cuBLAS's multi-level pipeline and swizzling give bigger advantage when bandwidth-limited.
 
-编译大尺寸：
+Build for large sizes:
 
 ```powershell
 nvcc -o lab_4096.exe wmma_lab.cu -arch=sm_120 -O3 -lcublas -DGEMM_M=4096 -DGEMM_N=4096 -DGEMM_K=4096 -DSKIP_CPU=1
 nvcc -o lab_8192.exe wmma_lab.cu -arch=sm_120 -O3 -lcublas -DGEMM_M=8192 -DGEMM_N=8192 -DGEMM_K=8192 -DSKIP_CPU=1
 ```
 
-`SKIP_CPU=1` 跳过 CPU reference（8192³ 的 CPU 矩阵乘法要好几分钟），正确性改为 kernel 之间对比（1024³ 已验证过 vs CPU）。
+`SKIP_CPU=1` skips CPU reference (8192³ CPU matmul takes minutes); correctness is verified by kernel-to-kernel comparison (1024³ has been validated vs CPU).
 
-## 正确性
+## Correctness
 
-每个 kernel 都对 CPU 参考（先把 FP16 转成 FP32，再做 IEEE FP32 点积）算平均绝对误差和最大绝对误差。k2–k5 再和 k1 比。
+Each kernel is checked against CPU reference (FP16 → FP32 first, then IEEE FP32 dot product) for avg abs error and max abs error. k2–k5 additionally compared against k1.
 
-- vs CPU：avg 0.005432，max 0.008179，门槛 0.05
-- vs k1：k2、k3、k4、k5、cuBLAS 的 max abs 都是 0
+- vs CPU: avg 0.005432, max 0.008179, threshold 0.05
+- vs k1: k2, k3, k4, k5, cuBLAS all have max abs 0
 
-cuBLAS 和 k1 完全一致，说明转置调用算的是同一个乘积。cuBLAS 只按 vs CPU 判定；`max_vs_k1` 那一列是对照，不是它的门槛。
+cuBLAS and k1 are identical — confirms the transposed call computes the same product. cuBLAS judged only vs CPU; `max_vs_k1` column is reference, not its threshold.
 
-## 现在的上限
+## Current Ceiling
 
-- shared memory 拷贝是 4 字节 `__half2`，不是 16 字节
-- 没有 swizzle，只有 `PAD=8`
-- 只有两级缓冲，而且本轮 MMA 结束后立刻等待
-- k5 只沿 N 展开了 4 个 accumulator，tile 仍是 64
-- 没有 `mma.sync`
-- 之前试过 `BM/BN=128`，比 64 慢；这次没有重测
+- Shared memory copies are 4-byte `__half2`, not 16-byte
+- No swizzle, only `PAD=8`
+- Only two-level buffering, and we wait immediately after current MMA
+- k5 only unrolled 4 accumulators along N, tile still 64
+- No `mma.sync`
+- Tried `BM/BN=128` before, was slower than 64; haven't retested this time
 
-## 踩坑
+## Bugs Hit Along the Way
 
-1. `#define N` 和 CUDA 头冲突，改成 `constexpr`
-2. `__pipeline_memcpy_async` 拷 2 字节，在 sm_120 上死锁。改成 `__half2` 的 4 字节
-3. `-arch=sm_100` 会让 `cublasCreate` 返回 1。这张卡是 sm_120
-4. 坑 2 触发过 TDR，GPU 被复位
+1. `#define N` conflicts with CUDA headers; changed to `constexpr`
+2. `__pipeline_memcpy_async` copying 2 bytes deadlocks on sm_120; changed to 4-byte `__half2`
+3. `-arch=sm_100` causes `cublasCreate` to return 1; this card is sm_120
+4. Bug #2 triggered TDR, GPU reset
 
-## 文件
+## Files
 
-- `wmma_lab.cu`：k1–k5、cuBLAS、fragment 布局、校验和计时
-- `Benchmark_Report_v1.md`：同一次测量的记录
+- `wmma_lab.cu`: k1–k5, cuBLAS, fragment layout, validation and timing
+- `Benchmark_Report_v1.md`: Same-measurement notes
 - `build.bat`
