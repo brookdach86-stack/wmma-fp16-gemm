@@ -1,3 +1,15 @@
+![Original Work](https://img.shields.io/badge/Original-Wain-brightgreen)
+![GPG Signed](https://img.shields.io/badge/GPG-Signed-brightgreen)
+![License Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue)
+
+---
+
+<!--
+@Author: Wain (brookdach86-stack@users.noreply.github.com)
+@GitHub: https://github.com/brookdach86-stack
+@Note: 本内容为原创，转载请注明来源。基于学习路径迭代：CSAPP Lab → CUDA Kernel → Triton → LLM Inference
+-->
+
 # WMMA FP16 GEMM
 
 > k1–k5 source has been merged into [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) at `矩阵乘法/wmma_gemm.cu`. This repo retains standalone benchmark data.

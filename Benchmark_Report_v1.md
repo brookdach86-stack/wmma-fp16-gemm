@@ -1,3 +1,9 @@
+<!--
+@Author: Wain (brookdach86-stack@users.noreply.github.com)
+@GitHub: https://github.com/brookdach86-stack
+@Note: 本内容为原创，转载请注明来源。基于学习路径迭代：CSAPP Lab → CUDA Kernel → Triton → LLM Inference
+-->
+
 # WMMA FP16 GEMM Benchmark Report
 
 学习笔记里的一次完整测量。不是生产 GEMM，也不是峰值效率。
