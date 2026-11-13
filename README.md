@@ -7,19 +7,17 @@
 
 # WMMA FP16 GEMM
 
-> 代码已合并到 [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) 的 `矩阵乘法/wmma_gemm.cu`，这个仓库留benchmark数据。
+> Source merged into [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) at `矩阵乘法/wmma_gemm.cu`. This repo retains standalone benchmark data.
 
-WMMA（Warp Matrix Multiply-Accumulate）是Tensor Core的CUDA API——每个warp 32个thread协同做16×16×16的矩阵乘法，比常规FP16快2-3x。
+WMMA (Warp Matrix Multiply-Accumulate) is the CUDA API for Tensor Cores — each warp's 32 threads cooperate on 16×16×16 matmuls, 2-3× faster than regular FP16.
 
-踩过的坑：
+Pitfalls:
 
-- WMMA的fragment布局和文档写的不一样——K/N维度的stride搞反了，算出来的结果是错的但编译过了，花了一天才发现是`n_frag_stride`和`k_frag_stride`搞反
-- `wmma::fill_fragment`和`wmma::load_matrix_sync`的matrix_layout参数不能乱传——row_major和col_major搞反了，结果也是错的，而且没有任何warning
-- accumulator的fragment要显式zero——我一开始以为CUDA会自动清零，结果上一次计算的残留值混进来了，测试数据里突然出现随机大值
+- WMMA fragment layout differs from docs — K/N stride was reversed, code compiled silently but results were wrong. Took a day to trace to `n_frag_stride` vs `k_frag_stride` swap
+- `wmma::fill_fragment` and `wmma::load_matrix_sync` matrix_layout arg is not safe to guess — row_major vs col_major swap also produces silent wrong results with zero warnings
+- Accumulator fragments must be explicitly zeroed — I assumed CUDA clears them, residual values from previous computation leaked in as random large numbers
 
-这些坑直接导致后来FlashAttention的`tl.dot()`（底层就是WMMA）不会再踩同样的布局错——因为我已经用手动WMMA写过，知道fragment到底是怎么排的。
-
-Implementing 1024×1024×1024 FP16 GEMM from naive to register-blocked-along-N using `nvcuda::wmma` on RTX 5060 Laptop (sm_120), compared against same-precision cuBLAS.
+These are exactly why FlashAttention's `tl.dot()` (which lowers to WMMA under the hood) didn't hit layout bugs — I already wrote WMMA manually and know how fragments are actually arranged.
 
 ## Environment
 
