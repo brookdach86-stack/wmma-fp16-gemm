@@ -1,18 +1,23 @@
 ![Original Work](https://img.shields.io/badge/Original-Wain-brightgreen)
 ![GPG Signed](https://img.shields.io/badge/GPG-Signed-brightgreen)
 ![License Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue)
+![Target HW](https://img.shields.io/badge/Target%20HW-RTX%205060%20Laptop%20(sm_120%2C26SM)-brightgreen)
 
 ---
 
-<!--
-@Author: Wain (brookdach86-stack@users.noreply.github.com)
-@GitHub: https://github.com/brookdach86-stack
-@Note: 本内容为原创，转载请注明来源。基于学习路径迭代：CSAPP Lab → CUDA Kernel → Triton → LLM Inference
--->
-
 # WMMA FP16 GEMM
 
-> k1–k5 source has been merged into [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) at `矩阵乘法/wmma_gemm.cu`. This repo retains standalone benchmark data.
+> 代码已合并到 [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) 的 `矩阵乘法/wmma_gemm.cu`，这个仓库留benchmark数据。
+
+WMMA（Warp Matrix Multiply-Accumulate）是Tensor Core的CUDA API——每个warp 32个thread协同做16×16×16的矩阵乘法，比常规FP16快2-3x。
+
+踩过的坑：
+
+- WMMA的fragment布局和文档写的不一样——K/N维度的stride搞反了，算出来的结果是错的但编译过了，花了一天才发现是`n_frag_stride`和`k_frag_stride`搞反
+- `wmma::fill_fragment`和`wmma::load_matrix_sync`的matrix_layout参数不能乱传——row_major和col_major搞反了，结果也是错的，而且没有任何warning
+- accumulator的fragment要显式zero——我一开始以为CUDA会自动清零，结果上一次计算的残留值混进来了，测试数据里突然出现随机大值
+
+这些坑直接导致后来FlashAttention的`tl.dot()`（底层就是WMMA）不会再踩同样的布局错——因为我已经用手动WMMA写过，知道fragment到底是怎么排的。
 
 Implementing 1024×1024×1024 FP16 GEMM from naive to register-blocked-along-N using `nvcuda::wmma` on RTX 5060 Laptop (sm_120), compared against same-precision cuBLAS.
 
