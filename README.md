@@ -8,7 +8,7 @@
 
 # WMMA FP16 GEMM
 
-![architecture](figures/fig0_architecture.png)
+![architecture](https://ghfast.top/https://raw.githubusercontent.com/brookdach86-stack/wmma-fp16-gemm/main/figures/fig0_architecture.png)
 
 > 代码已合并到 [cuda-kernels](https://github.com/brookdach86-stack/cuda-kernels) 的 `矩阵乘法/wmma_gemm.cu`，本仓库保留benchmark数据。
 
@@ -50,7 +50,7 @@ cuBLAS是column-major的。Row-major的`C = A*B`在column-major下等价于`C^T 
 
 ## 结果
 
-![tflops](figures/fig1_tflops.png)
+![tflops](https://ghfast.top/https://raw.githubusercontent.com/brookdach86-stack/wmma-fp16-gemm/main/figures/fig1_tflops.png)
 
 Warmup 10次，计时100次，cudaEvent，default stream。1024³在全boost频率下测；4096/8192³连续测（笔记本供电限制cuBLAS从32.9 TFLOPS掉到30.3/32.3，但比值稳定）。
 
@@ -89,7 +89,7 @@ Warmup 10次，计时100次，cudaEvent，default stream。1024³在全boost频�
 
 ### 观察
 
-![scaling](figures/fig2_scaling.png)
+![scaling](https://ghfast.top/https://raw.githubusercontent.com/brookdach86-stack/wmma-fp16-gemm/main/figures/fig2_scaling.png)
 
 1. **k1大矩阵直接崩**：8192³时k1只有1.9 TFLOPS（5.8%）——fragment直接从global memory读，HBM带宽跟不上。1024³时A+B才4MB放L2里，k1还能跑8.4 TFLOPS
 2. **Double buffering k4只有大矩阵才出效果**：8192³时k4比k3快1.76倍（29.8% vs 16.9%），但1024³时只有1.38倍。大矩阵memory latency高，hide latency才有意义
